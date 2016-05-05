@@ -1,0 +1,177 @@
+heat_template_version: 2014-10-16
+
+description: >
+  This template will provision the minimum number of required nodes, as well
+  it will setup all of the required lbaas vips.
+
+parameters:
+  consul_version:
+    type: string
+    default: "0.6.4"
+  consul_dc_name:
+    type: string
+    default: "testDC"
+
+resources:
+  cluster_ssh_key:
+    type: "OS::Nova::KeyPair"
+    properties:
+      save_private_key: True
+      name: deploy_key
+  consul_cluster_server1:
+    type: "OS::Nova::Server"
+    properties:
+      flavor: 2 GB General Purpose v1
+      image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+      key_name: shep
+      user_data:
+        str_replace:
+          template: | 
+            #!/bin/bash
+            apt-get update
+            apt-get install -y unzip screen
+
+            # Setup SSH keys
+            cat << 'EOH' |sudo tee /root/.ssh/id_rsa
+            %ssh_priv_key%
+            EOH
+            chmod 600 /root/.ssh/id_rsa
+            echo %ssh_pub_key% > /root/.ssh/id_rsa.pub
+            cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+
+            # Instal consul
+            wget https://releases.hashicorp.com/consul/%consul_ver%/consul_%consul_ver%_linux_amd64.zip
+            unzip -d /usr/local/sbin consul_%consul_ver%_linux_amd64.zip
+            consul --version
+            ENCRYPT_KEY=$(consul keygen)
+            mkdir /var/consul
+
+            # Configure bootstrap
+            mkdir -p /etc/consul.d/server
+            tee /etc/consul.d/server/config.json <<EOH
+            {
+                "bootstrap_expect": 3,
+                "server": true,
+                "ui": true,
+                "datacenter": "%dc_name%",
+                "data_dir": "/var/consul",
+                "log_level": "INFO",
+                "enable_syslog": true
+            }
+            EOH
+
+            # run consul in a screen session
+            screen -S consul -d -m consul agent -server -config-dir /etc/consul.d/server
+
+
+          params:
+            "%ssh_priv_key%": { get_attr: [ cluster_ssh_key, private_key ] }
+            "%ssh_pub_key%": { get_attr: [ cluster_ssh_key, public_key ] }
+            "%consul_ver%": { get_param: consul_version }
+            "%dc_name%": { get_param: consul_dc_name }
+  consul_cluster_server2:
+    type: "OS::Nova::Server"
+    properties:
+      flavor: 2 GB General Purpose v1
+      image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+      key_name: shep
+      user_data:
+        str_replace:
+          template: | 
+            #!/bin/bash
+            apt-get update
+            apt-get install -y unzip screen
+
+            # Setup SSH keys
+            cat << 'EOH' |sudo tee /root/.ssh/id_rsa
+            %ssh_priv_key%
+            EOH
+            chmod 600 /root/.ssh/id_rsa
+            echo %ssh_pub_key% > /root/.ssh/id_rsa.pub
+            cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+
+            # Instal consul
+            wget https://releases.hashicorp.com/consul/%consul_ver%/consul_%consul_ver%_linux_amd64.zip
+            unzip -d /usr/local/sbin consul_%consul_ver%_linux_amd64.zip
+            consul --version
+            mkdir /var/consul
+
+            # Configure bootstrap
+            mkdir -p /etc/consul.d/server
+            tee /etc/consul.d/server/config.json <<EOH
+            {
+                "bootstrap_expect": 3,
+                "server": true,
+                "datacenter": "%dc_name%",
+                "data_dir": "/var/consul",
+                "log_level": "INFO",
+                "enable_syslog": true,
+                "start_join": ["%node1_ip%"]
+            }
+            EOH
+
+            # run consul in a screen session
+            screen -S consul -d -m consul agent -server -config-dir /etc/consul.d/server 
+
+
+          params:
+            "%ssh_priv_key%": { get_attr: [ cluster_ssh_key, private_key ] }
+            "%ssh_pub_key%": { get_attr: [ cluster_ssh_key, public_key ] }
+            "%consul_ver%": { get_param: consul_version }
+            "%dc_name%": { get_param: consul_dc_name }
+            "%node1_ip%": { get_attr: [ consul_cluster_server1, addresses, private, 0, addr ] }
+  consul_cluster_server3:
+    type: "OS::Nova::Server"
+    properties:
+      flavor: 2 GB General Purpose v1
+      image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
+      key_name: shep
+      user_data:
+        str_replace:
+          template: | 
+            #!/bin/bash
+            apt-get update
+            apt-get install -y unzip screen
+
+            # Setup SSH keys
+            cat << 'EOH' |sudo tee /root/.ssh/id_rsa
+            %ssh_priv_key%
+            EOH
+            chmod 600 /root/.ssh/id_rsa
+            echo %ssh_pub_key% > /root/.ssh/id_rsa.pub
+            cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+
+            # Instal consul
+            wget https://releases.hashicorp.com/consul/%consul_ver%/consul_%consul_ver%_linux_amd64.zip
+            unzip -d /usr/local/sbin consul_%consul_ver%_linux_amd64.zip
+            consul --version
+            mkdir /var/consul
+
+            # Configure bootstrap
+            mkdir -p /etc/consul.d/server
+            tee /etc/consul.d/server/config.json <<EOH
+            {
+                "bootstrap_expect": 3,
+                "server": true,
+                "datacenter": "%dc_name%",
+                "data_dir": "/var/consul",
+                "log_level": "INFO",
+                "enable_syslog": true,
+                "start_join": ["%node1_ip%"]
+            }
+            EOH
+
+            # run consul in a screen session
+            screen -S consul -d -m consul agent -server -config-dir /etc/consul.d/server
+
+
+          params:
+            "%ssh_priv_key%": { get_attr: [ cluster_ssh_key, private_key ] }
+            "%ssh_pub_key%": { get_attr: [ cluster_ssh_key, public_key ] }
+            "%consul_ver%": { get_param: consul_version }
+            "%dc_name%": { get_param: consul_dc_name }
+            "%node1_ip%": { get_attr: [ consul_cluster_server1, addresses, private, 0, addr ] }
+        
+outputs:
+  deploy_ssh_priv_key:
+    value: { get_attr: [ cluster_ssh_key, private_key ] }
