@@ -11,167 +11,214 @@ parameters:
   consul_dc_name:
     type: string
     default: "testDC"
+  timeout:
+    type: number
+    description: "Timeout for WaitCondition, depends on your image and environment"
+    default: 600
 
 resources:
+  signal_handle:
+    type: "OS::Heat::SwiftSignalHandle"
+
+  wait_for_servers:
+    type: "OS::Heat::SwiftSignal"
+    properties:
+      handle: {get_resource: signal_handle}
+      count: 3
+      timeout: {get_param: timeout}
+
   cluster_ssh_key:
     type: "OS::Nova::KeyPair"
     properties:
       save_private_key: True
       name: deploy_key
+
+  prep_consul:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: ssh_priv_key
+      - name: ssh_pub_key
+      - name: consul_ver
+      #- name: wc_notify
+      - name: signal_endpoint
+      config: |
+        #!/bin/bash
+        set -x
+        rc="success"
+
+        apt-get update
+        apt-get install -y unzip screen
+
+        # Setup SSH keys
+        cat << 'EOH' |sudo tee /root/.ssh/id_rsa
+        ${ssh_priv_key}
+        EOH
+        #echo ${ssh_priv_key} > /root/.ssh/id_rsa
+        chmod 600 /root/.ssh/id_rsa
+
+        echo ${ssh_pub_key} > /root/.ssh/id_rsa.pub
+        cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+
+        # Download and install consul
+        if ! wget https://releases.hashicorp.com/consul/${consul_ver}/consul_${consul_ver}_linux_amd64.zip; then
+          rc="failure"
+          reason="wget of the consul binary failed"
+        fi
+        unzip -d /usr/local/sbin consul_${consul_ver}_linux_amd64.zip
+
+        # Notify SwiftSignalHandle
+        # NOTE: (shep) For some reason the curl_cli is putting ''\'' around the endpoint url, causing it to fail
+        if [ $rc == "success" ]; then
+          #${wc_notify} --data-binary '{"status": "SUCCESS", "data": "server1: consul has been installed!"}'
+          curl -i -X PUT "${signal_endpoint}" --data-binary '{"status": "SUCCESS", "data": "consul has been installed!"}'
+        else
+          #${wc_notify} --data-binary '{"status": "SUCCESS", "data": "server1: consul has been installed!"}'
+          curl -i -X PUT "${signal_endpoint}" --data-binary '{"status": "FAILURE", "data": "${reason}"}'
+        fi
+
+  bootstrap_consul:
+    type: "OS::Heat::SoftwareConfig"
+    depends_on: wait_for_servers
+    properties:
+      group: script
+      inputs:
+      - name: dc_name
+      - name: node1_ip
+      - name: node2_ip
+      - name: node3_ip
+      config: |
+        #!/bin/bash
+        set -x
+
+        mkdir /var/consul
+        mkdir -p /etc/consul.d/server
+
+        # Create the config file
+        tee /etc/consul.d/server/config.json <<EOH
+        {
+            "bootstrap_expect": 3,
+            "server": true,
+            "ui": true,
+            "datacenter": "${dc_name}",
+            "data_dir": "/var/consul",
+            "log_level": "INFO",
+            "enable_syslog": true,
+            "start_join": ["${node1_ip}", "${node2_ip}", "${node3_ip}"]
+        }
+        EOH
+
+        # run consul in a screen session
+        screen -S consul -d -m consul agent -server -config-dir /etc/consul.d/server
+
+  deploy_node1_step1:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: prep_consul}
+      server: {get_resource: consul_cluster_server1}
+      input_values:
+        ssh_priv_key: { get_attr: [ cluster_ssh_key, private_key ] }
+        ssh_pub_key: { get_attr: [ cluster_ssh_key, public_key ] }
+        consul_ver: { get_param: consul_version }
+        #wc_notify: { get_attr: [ 'signal_handle', 'curl_cli' ] }
+        signal_endpoint: { get_attr: [ 'signal_handle', 'endpoint' ] }
+
+  deploy_node1_step2:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: bootstrap_consul}
+      server: {get_resource: consul_cluster_server1}
+      input_values:
+        dc_name: { get_param: consul_dc_name }
+        node1_ip: { get_attr: [ consul_cluster_server1, addresses, private, 0, addr ] }
+        node2_ip: { get_attr: [ consul_cluster_server2, addresses, private, 0, addr ] }
+        node3_ip: { get_attr: [ consul_cluster_server3, addresses, private, 0, addr ] }
+
+  deploy_node2_step1:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: prep_consul}
+      server: {get_resource: consul_cluster_server2}
+      input_values:
+        ssh_priv_key: { get_attr: [ cluster_ssh_key, private_key ] }
+        ssh_pub_key: { get_attr: [ cluster_ssh_key, public_key ] }
+        consul_ver: { get_param: consul_version }
+        #wc_notify: { get_attr: [ 'signal_handle', 'curl_cli' ] }
+        signal_endpoint: { get_attr: [ 'signal_handle', 'endpoint' ] }
+
+  deploy_node2_step2:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: bootstrap_consul}
+      server: {get_resource: consul_cluster_server2}
+      input_values:
+        dc_name: { get_param: consul_dc_name }
+        node1_ip: { get_attr: [ consul_cluster_server1, addresses, private, 0, addr ] }
+        node2_ip: { get_attr: [ consul_cluster_server2, addresses, private, 0, addr ] }
+        node3_ip: { get_attr: [ consul_cluster_server3, addresses, private, 0, addr ] }
+
+  deploy_node3_step1:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: prep_consul}
+      server: {get_resource: consul_cluster_server3}
+      input_values:
+        ssh_priv_key: { get_attr: [ cluster_ssh_key, private_key ] }
+        ssh_pub_key: { get_attr: [ cluster_ssh_key, public_key ] }
+        consul_ver: { get_param: consul_version }
+        #wc_notify: { get_attr: [ 'signal_handle', 'curl_cli' ] }
+        signal_endpoint: { get_attr: [ 'signal_handle', 'endpoint' ] }
+
+  deploy_node3_step2:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: bootstrap_consul}
+      server: {get_resource: consul_cluster_server3}
+      input_values:
+        dc_name: { get_param: consul_dc_name }
+        node1_ip: { get_attr: [ consul_cluster_server1, addresses, private, 0, addr ] }
+        node2_ip: { get_attr: [ consul_cluster_server2, addresses, private, 0, addr ] }
+        node3_ip: { get_attr: [ consul_cluster_server3, addresses, private, 0, addr ] }
+
+  boot_config:
+    type: "Heat::InstallConfigAgent"
+
   consul_cluster_server1:
     type: "OS::Nova::Server"
     properties:
       flavor: 2 GB General Purpose v1
       image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
       key_name: shep
-      user_data:
-        str_replace:
-          template: | 
-            #!/bin/bash
-            apt-get update
-            apt-get install -y unzip screen
+      user_data_format: SOFTWARE_CONFIG
+      user_data: {get_attr: [boot_config, config]}
 
-            # Setup SSH keys
-            cat << 'EOH' |sudo tee /root/.ssh/id_rsa
-            %ssh_priv_key%
-            EOH
-            chmod 600 /root/.ssh/id_rsa
-            echo %ssh_pub_key% > /root/.ssh/id_rsa.pub
-            cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
-
-            # Instal consul
-            wget https://releases.hashicorp.com/consul/%consul_ver%/consul_%consul_ver%_linux_amd64.zip
-            unzip -d /usr/local/sbin consul_%consul_ver%_linux_amd64.zip
-            consul --version
-            ENCRYPT_KEY=$(consul keygen)
-            mkdir /var/consul
-
-            # Configure bootstrap
-            mkdir -p /etc/consul.d/server
-            tee /etc/consul.d/server/config.json <<EOH
-            {
-                "bootstrap_expect": 3,
-                "server": true,
-                "ui": true,
-                "datacenter": "%dc_name%",
-                "data_dir": "/var/consul",
-                "log_level": "INFO",
-                "enable_syslog": true
-            }
-            EOH
-
-            # run consul in a screen session
-            screen -S consul -d -m consul agent -server -config-dir /etc/consul.d/server
-
-
-          params:
-            "%ssh_priv_key%": { get_attr: [ cluster_ssh_key, private_key ] }
-            "%ssh_pub_key%": { get_attr: [ cluster_ssh_key, public_key ] }
-            "%consul_ver%": { get_param: consul_version }
-            "%dc_name%": { get_param: consul_dc_name }
   consul_cluster_server2:
     type: "OS::Nova::Server"
     properties:
       flavor: 2 GB General Purpose v1
       image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
       key_name: shep
-      user_data:
-        str_replace:
-          template: | 
-            #!/bin/bash
-            apt-get update
-            apt-get install -y unzip screen
+      user_data_format: SOFTWARE_CONFIG
+      user_data: {get_attr: [boot_config, config]}
 
-            # Setup SSH keys
-            cat << 'EOH' |sudo tee /root/.ssh/id_rsa
-            %ssh_priv_key%
-            EOH
-            chmod 600 /root/.ssh/id_rsa
-            echo %ssh_pub_key% > /root/.ssh/id_rsa.pub
-            cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
-
-            # Instal consul
-            wget https://releases.hashicorp.com/consul/%consul_ver%/consul_%consul_ver%_linux_amd64.zip
-            unzip -d /usr/local/sbin consul_%consul_ver%_linux_amd64.zip
-            consul --version
-            mkdir /var/consul
-
-            # Configure bootstrap
-            mkdir -p /etc/consul.d/server
-            tee /etc/consul.d/server/config.json <<EOH
-            {
-                "bootstrap_expect": 3,
-                "server": true,
-                "datacenter": "%dc_name%",
-                "data_dir": "/var/consul",
-                "log_level": "INFO",
-                "enable_syslog": true,
-                "start_join": ["%node1_ip%"]
-            }
-            EOH
-
-            # run consul in a screen session
-            screen -S consul -d -m consul agent -server -config-dir /etc/consul.d/server 
-
-
-          params:
-            "%ssh_priv_key%": { get_attr: [ cluster_ssh_key, private_key ] }
-            "%ssh_pub_key%": { get_attr: [ cluster_ssh_key, public_key ] }
-            "%consul_ver%": { get_param: consul_version }
-            "%dc_name%": { get_param: consul_dc_name }
-            "%node1_ip%": { get_attr: [ consul_cluster_server1, addresses, private, 0, addr ] }
   consul_cluster_server3:
     type: "OS::Nova::Server"
     properties:
       flavor: 2 GB General Purpose v1
       image: Ubuntu 14.04 LTS (Trusty Tahr) (PVHVM)
       key_name: shep
-      user_data:
-        str_replace:
-          template: | 
-            #!/bin/bash
-            apt-get update
-            apt-get install -y unzip screen
+      user_data_format: SOFTWARE_CONFIG
+      user_data: {get_attr: [boot_config, config]}
 
-            # Setup SSH keys
-            cat << 'EOH' |sudo tee /root/.ssh/id_rsa
-            %ssh_priv_key%
-            EOH
-            chmod 600 /root/.ssh/id_rsa
-            echo %ssh_pub_key% > /root/.ssh/id_rsa.pub
-            cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
-
-            # Instal consul
-            wget https://releases.hashicorp.com/consul/%consul_ver%/consul_%consul_ver%_linux_amd64.zip
-            unzip -d /usr/local/sbin consul_%consul_ver%_linux_amd64.zip
-            consul --version
-            mkdir /var/consul
-
-            # Configure bootstrap
-            mkdir -p /etc/consul.d/server
-            tee /etc/consul.d/server/config.json <<EOH
-            {
-                "bootstrap_expect": 3,
-                "server": true,
-                "datacenter": "%dc_name%",
-                "data_dir": "/var/consul",
-                "log_level": "INFO",
-                "enable_syslog": true,
-                "start_join": ["%node1_ip%"]
-            }
-            EOH
-
-            # run consul in a screen session
-            screen -S consul -d -m consul agent -server -config-dir /etc/consul.d/server
-
-
-          params:
-            "%ssh_priv_key%": { get_attr: [ cluster_ssh_key, private_key ] }
-            "%ssh_pub_key%": { get_attr: [ cluster_ssh_key, public_key ] }
-            "%consul_ver%": { get_param: consul_version }
-            "%dc_name%": { get_param: consul_dc_name }
-            "%node1_ip%": { get_attr: [ consul_cluster_server1, addresses, private, 0, addr ] }
-        
 outputs:
   deploy_ssh_priv_key:
     value: { get_attr: [ cluster_ssh_key, private_key ] }
+  deploy_ssh_pub_key:
+    value: { get_attr: [ cluster_ssh_key, public_key ] }
+  signal_cli:
+    value: { get_attr: [ 'signal_handle', 'curl_cli' ] }
+  signal_endpoint:
+    value: { get_attr: [ 'signal_handle', 'endpoint' ] }
+  signal_data:
+    value: { get_attr: [ 'wait_for_servers', 'data' ] }
