@@ -52,7 +52,7 @@ resources:
         apt-get install -y unzip screen
 
         # Setup SSH keys
-        cat << 'EOH' |sudo tee /root/.ssh/id_rsa
+        cat << EOH |sudo tee /root/.ssh/id_rsa
         ${ssh_priv_key}
         EOH
         #echo ${ssh_priv_key} > /root/.ssh/id_rsa
