@@ -1,0 +1,221 @@
+heat_template_version: 2014-10-16
+
+description: >
+  This template will provision a four node minio cluster.
+
+parameters:
+  minio_url:
+    type: string
+    default: "https://dl.minio.io/server/minio/release/linux-amd64/minio"
+  mc_url:
+    type: string
+    default: "https://dl.minio.io/client/mc/release/linux-amd64/mc"
+  timeout:
+    type: number
+    description: "Timeout for WaitCondition, depends on your image and environment"
+    default: 600
+  minio_access_key:
+    type: string
+  minio_secret_key:
+    type: string
+  key_name:
+    type: string
+  image:
+    type: string
+  flavor:
+    type: string
+
+resources:
+  signal_handle:
+    type: "OS::Heat::SwiftSignalHandle"
+
+  wait_for_servers:
+    type: "OS::Heat::SwiftSignal"
+    properties:
+      handle: {get_resource: signal_handle}
+      count: 4
+      timeout: {get_param: timeout}
+
+  cluster_ssh_key:
+    type: "OS::Nova::KeyPair"
+    properties:
+      save_private_key: True
+      name: deploy_key
+
+  prepare_minio:
+    type: OS::Heat::SoftwareConfig
+    properties:
+      group: script
+      inputs:
+      - name: ssh_priv_key
+      - name: ssh_pub_key
+      - name: minio_url
+      - name: mc_url
+      - name: signal_endpoint
+      config: {get_file: templates/prepare_minio.sh}
+
+  run_minio:
+    type: OS::Heat::SoftwareConfig
+    depends_on: wait_for_servers
+    properties:
+      group: script
+      inputs:
+      - name: minio_access_key
+      - name: minio_secret_key
+      - name: node1_ip
+      - name: node2_ip
+      - name: node3_ip
+      - name: node4_ip
+      config: {get_file: templates/run_minio.sh}
+
+  deploy_node1_step1:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: prepare_minio}
+      server: {get_resource: minio_node_01}
+      input_values:
+        ssh_priv_key: { get_attr: [ cluster_ssh_key, private_key ] }
+        ssh_pub_key: { get_attr: [ cluster_ssh_key, public_key ] }
+        minio_url: { get_param: minio_url }
+        mc_url: { get_param: mc_url }
+        signal_endpoint: { get_attr: [ 'signal_handle', 'endpoint' ] }
+
+  deploy_node1_step2:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: run_minio}
+      server: {get_resource: minio_node_01}
+      input_values:
+        minio_access_key: { get_param: minio_access_key }
+        minio_secret_key: { get_param: minio_secret_key }
+        node1_ip: { get_attr: [ minio_node_01, addresses, private, 0, addr ] }
+        node2_ip: { get_attr: [ minio_node_02, addresses, private, 0, addr ] }
+        node3_ip: { get_attr: [ minio_node_03, addresses, private, 0, addr ] }
+        node4_ip: { get_attr: [ minio_node_04, addresses, private, 0, addr ] }
+
+  deploy_node2_step1:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: prepare_minio}
+      server: {get_resource: minio_node_02}
+      input_values:
+        ssh_priv_key: { get_attr: [ cluster_ssh_key, private_key ] }
+        ssh_pub_key: { get_attr: [ cluster_ssh_key, public_key ] }
+        minio_url: { get_param: minio_url }
+        mc_url: { get_param: mc_url }
+        signal_endpoint: { get_attr: [ 'signal_handle', 'endpoint' ] }
+
+  deploy_node2_step2:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: run_minio}
+      server: {get_resource: minio_node_02}
+      input_values:
+        minio_access_key: { get_param: minio_access_key }
+        minio_secret_key: { get_param: minio_secret_key }
+        node1_ip: { get_attr: [ minio_node_01, addresses, private, 0, addr ] }
+        node2_ip: { get_attr: [ minio_node_02, addresses, private, 0, addr ] }
+        node3_ip: { get_attr: [ minio_node_03, addresses, private, 0, addr ] }
+        node4_ip: { get_attr: [ minio_node_04, addresses, private, 0, addr ] }
+
+  deploy_node3_step1:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: prepare_minio}
+      server: {get_resource: minio_node_03}
+      input_values:
+        ssh_priv_key: { get_attr: [ cluster_ssh_key, private_key ] }
+        ssh_pub_key: { get_attr: [ cluster_ssh_key, public_key ] }
+        minio_url: { get_param: minio_url }
+        mc_url: { get_param: mc_url }
+        signal_endpoint: { get_attr: [ 'signal_handle', 'endpoint' ] }
+
+  deploy_node3_step2:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: run_minio}
+      server: {get_resource: minio_node_03}
+      input_values:
+        minio_access_key: { get_param: minio_access_key }
+        minio_secret_key: { get_param: minio_secret_key }
+        node1_ip: { get_attr: [ minio_node_01, addresses, private, 0, addr ] }
+        node2_ip: { get_attr: [ minio_node_02, addresses, private, 0, addr ] }
+        node3_ip: { get_attr: [ minio_node_03, addresses, private, 0, addr ] }
+        node4_ip: { get_attr: [ minio_node_04, addresses, private, 0, addr ] }
+
+  deploy_node4_step1:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: prepare_minio}
+      server: {get_resource: minio_node_04}
+      input_values:
+        ssh_priv_key: { get_attr: [ cluster_ssh_key, private_key ] }
+        ssh_pub_key: { get_attr: [ cluster_ssh_key, public_key ] }
+        minio_url: { get_param: minio_url }
+        mc_url: { get_param: mc_url }
+        #wc_notify: { get_attr: [ 'signal_handle', 'curl_cli' ] }
+        signal_endpoint: { get_attr: [ 'signal_handle', 'endpoint' ] }
+
+  deploy_node4_step2:
+    type: "OS::Heat::SoftwareDeployment"
+    properties:
+      config: {get_resource: run_minio}
+      server: {get_resource: minio_node_04}
+      input_values:
+        minio_access_key: { get_param: minio_access_key }
+        minio_secret_key: { get_param: minio_secret_key }
+        node1_ip: { get_attr: [ minio_node_01, addresses, private, 0, addr ] }
+        node2_ip: { get_attr: [ minio_node_02, addresses, private, 0, addr ] }
+        node3_ip: { get_attr: [ minio_node_03, addresses, private, 0, addr ] }
+        node4_ip: { get_attr: [ minio_node_04, addresses, private, 0, addr ] }
+
+  boot_config:
+    type: "Heat::InstallConfigAgent"
+
+  minio_node_01:
+    type: "OS::Nova::Server"
+    properties:
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      user_data_format: SOFTWARE_CONFIG
+      user_data: {get_attr: [boot_config, config]}
+
+  minio_node_02:
+    type: "OS::Nova::Server"
+    properties:
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      user_data_format: SOFTWARE_CONFIG
+      user_data: {get_attr: [boot_config, config]}
+
+  minio_node_03:
+    type: "OS::Nova::Server"
+    properties:
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      user_data_format: SOFTWARE_CONFIG
+      user_data: {get_attr: [boot_config, config]}
+
+  minio_node_04:
+    type: "OS::Nova::Server"
+    properties:
+      flavor: { get_param: flavor }
+      image: { get_param: image }
+      key_name: { get_param: key_name }
+      user_data_format: SOFTWARE_CONFIG
+      user_data: {get_attr: [boot_config, config]}
+
+outputs:
+  #deploy_ssh_priv_key:
+  #  value: { get_attr: [ cluster_ssh_key, private_key ] }
+  #deploy_ssh_pub_key:
+  #  value: { get_attr: [ cluster_ssh_key, public_key ] }
+  #signal_cli:
+  #  value: { get_attr: [ 'signal_handle', 'curl_cli' ] }
+  #signal_endpoint:
+  #  value: { get_attr: [ 'signal_handle', 'endpoint' ] }
+  signal_data:
+    value: { get_attr: [ 'wait_for_servers', 'data' ] }
