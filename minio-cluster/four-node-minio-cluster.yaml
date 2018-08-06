@@ -58,10 +58,10 @@ resources:
     properties:
       config: {get_resource: install_minio}
       servers: {
-        '0': {get_resource: minio_node_01},
-        '1': {get_resource: minio_node_02},
-        '2': {get_resource: minio_node_03},
-        '3': {get_resource: minio_node_04}
+        '0': {get_resource: node_01},
+        '1': {get_resource: node_02},
+        '2': {get_resource: node_03},
+        '3': {get_resource: node_04}
       }
       input_values:
         ssh_priv_key: { get_attr: [ cluster_ssh_key, private_key ] }
@@ -70,15 +70,15 @@ resources:
         mc_url: { get_param: mc_url }
         minio_access_key: { get_resource: minio_access_key }
         minio_secret_key: { get_resource: minio_secret_key }
-        node1_ip: { get_attr: [ minio_node_01, addresses, private, 0, addr ] }
-        node2_ip: { get_attr: [ minio_node_02, addresses, private, 0, addr ] }
-        node3_ip: { get_attr: [ minio_node_03, addresses, private, 0, addr ] }
-        node4_ip: { get_attr: [ minio_node_04, addresses, private, 0, addr ] }
+        node1_ip: { get_attr: [ node_01, addresses, private, 0, addr ] }
+        node2_ip: { get_attr: [ node_02, addresses, private, 0, addr ] }
+        node3_ip: { get_attr: [ node_03, addresses, private, 0, addr ] }
+        node4_ip: { get_attr: [ node_04, addresses, private, 0, addr ] }
 
   boot_config:
     type: "Heat::InstallConfigAgent"
 
-  minio_node_01:
+  node_01:
     type: "OS::Nova::Server"
     properties:
       flavor: { get_param: flavor }
@@ -87,7 +87,7 @@ resources:
       user_data_format: SOFTWARE_CONFIG
       user_data: {get_attr: [boot_config, config]}
 
-  minio_node_02:
+  node_02:
     type: "OS::Nova::Server"
     properties:
       flavor: { get_param: flavor }
@@ -96,7 +96,7 @@ resources:
       user_data_format: SOFTWARE_CONFIG
       user_data: {get_attr: [boot_config, config]}
 
-  minio_node_03:
+  node_03:
     type: "OS::Nova::Server"
     properties:
       flavor: { get_param: flavor }
@@ -105,7 +105,7 @@ resources:
       user_data_format: SOFTWARE_CONFIG
       user_data: {get_attr: [boot_config, config]}
 
-  minio_node_04:
+  node_04:
     type: "OS::Nova::Server"
     properties:
       flavor: { get_param: flavor }
