@@ -36,7 +36,7 @@ chmod +x /usr/local/sbin/mc
 # NOTE: (shep) For some reason the curl_cli is putting ''\'' around the endpoint url, causing it to fail
 if [ $rc == "success" ]; then
   #${wc_notify} --data-binary '{"status": "SUCCESS", "data": "server1: consul has been installed!"}'
-  curl -i -X PUT "${signal_endpoint}" --data-binary '{"status": "SUCCESS", "data": "minio has been installed!"}'
+  curl -i -X PUT "${signal_endpoint}" --data-binary '{"status": "SUCCESS", "data": "minio has been installed on ${HOSTNAME}!"}'
 else
   #${wc_notify} --data-binary '{"status": "SUCCESS", "data": "server1: consul has been installed!"}'
   curl -i -X PUT "${signal_endpoint}" --data-binary '{"status": "FAILURE", "data": "${reason}"}'

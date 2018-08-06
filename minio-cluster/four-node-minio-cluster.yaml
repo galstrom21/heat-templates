@@ -10,10 +10,10 @@ parameters:
   mc_url:
     type: string
     default: "https://dl.minio.io/client/mc/release/linux-amd64/mc"
-  minio_access_key:
-    type: string
-  minio_secret_key:
-    type: string
+  access_key_length:
+    type: number
+  secret_key_length:
+    type: number
   key_name:
     type: string
   image:
@@ -22,6 +22,14 @@ parameters:
     type: string
 
 resources:
+  minio_access_key:
+    type: "OS::Heat::RandomString"
+    properties:
+      length: { get_param: access_key_length }
+  minio_secret_key:
+    type: "OS::Heat::RandomString"
+    properties:
+      length: { get_param: secret_key_length }
   cluster_ssh_key:
     type: "OS::Nova::KeyPair"
     properties:
@@ -60,8 +68,8 @@ resources:
         ssh_pub_key: { get_attr: [ cluster_ssh_key, public_key ] }
         minio_url: { get_param: minio_url }
         mc_url: { get_param: mc_url }
-        minio_access_key: { get_param: minio_access_key }
-        minio_secret_key: { get_param: minio_secret_key }
+        minio_access_key: { get_resource: minio_access_key }
+        minio_secret_key: { get_resource: minio_secret_key }
         node1_ip: { get_attr: [ minio_node_01, addresses, private, 0, addr ] }
         node2_ip: { get_attr: [ minio_node_02, addresses, private, 0, addr ] }
         node3_ip: { get_attr: [ minio_node_03, addresses, private, 0, addr ] }
@@ -108,10 +116,6 @@ resources:
 
 outputs:
   minio_access_key:
-    value: { get_param: minio_access_key }
+    value: { get_resource: minio_access_key }
   minio_secret_key:
-    value: { get_param: minio_secret_key }
-  deploy_ssh_priv_key:
-    value: { get_attr: [ cluster_ssh_key, private_key ] }
-  deploy_ssh_pub_key:
-    value: { get_attr: [ cluster_ssh_key, public_key ] }
+    value: { get_resource: minio_secret_key }
