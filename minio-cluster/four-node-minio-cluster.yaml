@@ -116,6 +116,12 @@ resources:
 
 outputs:
   minio_access_key:
+    description: "Access key of minimum 3 characters in length. For more
+    information see
+    https://docs.minio.io/docs/minio-server-configuration-guide.html"
     value: { get_resource: minio_access_key }
   minio_secret_key:
+    description: "Secret key of minimum 8 characters in length. For more
+    information see
+    https://docs.minio.io/docs/minio-server-configuration-guide.html"
     value: { get_resource: minio_secret_key }
